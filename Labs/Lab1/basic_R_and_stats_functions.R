@@ -3,7 +3,7 @@ library(EnvStats)
 library(nortest)
 
 # set working directory (relative path)
-setwd("~/Courses/Data Analytics/Spring26/labs/lab 1/")
+setwd("C:\\Users\\Ryan\\Documents\\GitHub\\DataAnalyticsS2026\\Labs\\Lab1")
 
 # read data
 epi.data <- read_csv("epi_results_2024_pop_gdp.csv")
