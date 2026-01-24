@@ -47,3 +47,11 @@ qqnorm(TCG.new); qqline(TCG.new)
 qqnorm(BER.new); qqline(BER.new)
 qqplot(TCG.new, BER.new, xlab = "Q-Q plot for TCG & BER")
 # ----------------------------------------------------------
+
+# Statistical Tests ----------------------------------------
+shapiro.test(TCG.new)
+ad.test(TCG.new)
+shapiro.test(BER.new)
+ad.test(BER.new)
+ks.test(TCG.new, BER.new)
+# ----------------------------------------------------------
