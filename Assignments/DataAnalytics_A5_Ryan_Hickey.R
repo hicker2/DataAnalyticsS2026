@@ -11,6 +11,8 @@ library(corrplot)
 library(car)
 library(caret)
 library(GGally)
+library(randomForest)
+library(e1071)
 
 # set working directory
 setwd("~\\GitHub\\DataAnalyticsS2026\\Assignments")
@@ -173,3 +175,82 @@ results
 # Then I used the IQR method to identify outliers and plotted graphs of the outliers
 # vs the data attributes to be used in the modeling.
 # After removing the outliers the modeling occurred.
+
+
+##################################################
+####              Part 2 A                    ####
+##################################################
+
+nb_counts <- as.data.frame(table(df_model$NEIGHBORHOOD))
+nb_counts <- nb_counts[order(-nb_counts$Freq), ]
+top_nb <- nb_counts$Var1[1:4]
+df_nb <- df_model[df_model$NEIGHBORHOOD %in% top_nb, ]
+df_nb$NEIGHBORHOOD <- as.factor(df_nb$NEIGHBORHOOD)
+
+train_idx_nb <- createDataPartition(df_nb$NEIGHBORHOOD, p = 0.70, list = FALSE)
+train_nb <- df_nb[ train_idx_nb, ]
+test_nb  <- df_nb[-train_idx_nb, ]
+
+features <- c("log_price", "log_gsf", "log_lsf", "TOTAL_UNITS", "age")
+preproc <- preProcess(train_nb[, features], method = c("center", "scale"))
+train_scaled <- predict(preproc, train_nb[, features])
+test_scaled  <- predict(preproc, test_nb[, features])
+
+eval_class <- function(actual, predicted, label) {
+  cm <- table(Predicted = predicted, Actual = actual)
+  precision <- diag(cm) / rowSums(cm)
+  recall    <- diag(cm) / colSums(cm)
+  f1        <- 2 * (precision * recall) / (precision + recall)
+  print(cm)
+  data.frame(Model = label,
+             Precision = mean(precision, na.rm = TRUE),
+             Recall    = mean(recall, na.rm = TRUE),
+             F1        = mean(f1, na.rm = TRUE))
+}
+
+# KNN model
+knn_pred <- knn(
+  train = train_scaled,
+  test  = test_scaled,
+  cl    = train_nb$NEIGHBORHOOD,
+  k     = 5
+)
+res_knn <- eval_class(test_nb$NEIGHBORHOOD, knn_pred, "kNN")
+
+# Random forest model
+rf_model <- randomForest(
+  NEIGHBORHOOD ~ log_price + log_gsf + log_lsf + TOTAL_UNITS + age,
+  data = train_nb,
+  ntree = 100
+)
+rf_pred <- predict(rf_model, newdata = test_nb)
+res_rf <- eval_class(test_nb$NEIGHBORHOOD, rf_pred, "Random Forest")
+
+# SVM
+svm_model <- svm(
+  x = train_scaled,
+  y = train_nb$NEIGHBORHOOD,
+  kernel = "radial"   # default, works well
+)
+svm_pred <- predict(svm_model, newdata = test_scaled)
+res_svm <- eval_class(test_nb$NEIGHBORHOOD, svm_pred, "SVM")
+
+# Results
+class_results <- rbind(res_knn, res_rf, res_svm)
+class_results
+
+# The overall cleaning was minimal. I used the previously cleaned dataframe as a starting point.
+# This meant I just had to make sure the attributes were scaled correctly and create a new test/train split for neighborhoods rather than sale price.
+# As for the performance, the random forest did the best having the highest F1 and Recall score and almost having the highest Precision score.
+
+
+##################################################
+####          Part 3 Conclusions              ####
+##################################################
+
+# The models did ok. I think this could be because of a lack of data.
+# When I was removing NA values and cleaning the data, many rows were removed
+# and this lead to the final dataset being about 150-250 objects. With this 
+# being the case the models at times could struggle, and the SVM was one that did so.
+# The random forest however, even with the lack of data did particularly well.
+# It had an F1 score of close to .9.
