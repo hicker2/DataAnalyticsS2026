@@ -200,20 +200,17 @@ r2 <- 1 - sum((actual - predictions)^2) / sum((actual - mean(actual))^2)
 cat("\nRandom Forest Evaluation:\n")
 cat("RMSE:", rmse, "\n")
 cat("R-squared:", r2, "\n")
-predictions <- predict(lm_model, lm_data)
+predictions <- predict(rf_model, rf_data)
 
 plot_data <- data.frame(
   Actual = actual,
   Predicted = predictions
 )
 
-ggplot(plot_data, aes(x = Actual, y = Predicted)) +
-  geom_point(color = "darkgreen") +
-  geom_smooth(method = "lm", se = FALSE, color = "red") +
-  labs(title = "Random Forest: Actual vs Predicted",
-       x = "Actual Grade",
-       y = "Predicted Grade") +
-  theme_minimal()
+ggplot(plot_data, aes(x = factor(Actual), y = Predicted)) +
+  geom_boxplot(fill = "darkgreen", alpha = 0.6) +
+  labs(title = "Random Forest: Predicted vs Actual Grades",
+       x = "Actual Grade", y = "Predicted Grade")
 
 ###################################################
 # SVM and PCA
@@ -250,9 +247,8 @@ plot_data <- data.frame(
   Predicted = predictions
 )
 
-ggplot(plot_data, aes(x = Actual, y = Predicted)) +
-  geom_point(color = "purple") +
-  geom_smooth(method = "lm", se = FALSE, color = "red") +
-  labs(title = "SVM with PCA: Actual vs Predicted",
-       x = "Actual Grade", y = "Predicted Grade") +
-  theme_minimal()
+ggplot(plot_data, aes(x = factor(Actual), y = Predicted)) +
+  geom_boxplot(fill = "purple", alpha = 0.6) +
+  labs(title = "SVM: Predicted vs Actual Grades",
+       x = "Actual Grade", y = "Predicted Grade")
+
