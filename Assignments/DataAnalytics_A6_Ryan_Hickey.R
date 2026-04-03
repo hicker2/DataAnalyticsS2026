@@ -3,47 +3,11 @@ library(EnvStats)
 library(nortest)
 library(class)
 library(ggplot2)
+library(randomForest)
+library(e1071)
 
 # Below is the extra information detailing how the numbers of the dataset map
-# to real outputs
-"
-Class Labels
-
-Student ID
-1- Student Age (1: 18-21, 2: 22-25, 3: above 26)
-2- Sex (1: female, 2: male)
-3- Graduated high-school type: (1: private, 2: state, 3: other)
-4- Scholarship type: (1: None, 2: 25%, 3: 50%, 4: 75%, 5: Full)
-5- Additional work: (1: Yes, 2: No)
-6- Regular artistic or sports activity: (1: Yes, 2: No)
-7- Do you have a partner: (1: Yes, 2: No)
-8- Total salary if available (1: USD 135-200, 2: USD 201-270, 3: USD 271-340, 4: USD 341-410, 5: above 410)
-9- Transportation to the university: (1: Bus, 2: Private car/taxi, 3: bicycle, 4: Other)
-10- Accommodation type in Cyprus: (1: rental, 2: dormitory, 3: with family, 4: Other)
-11- Mothersâ€™ education: (1: primary school, 2: secondary school, 3: high school, 4: university, 5: MSc., 6: Ph.D.)
-12- Fathersâ€™ education: (1: primary school, 2: secondary school, 3: high school, 4: university, 5: MSc., 6: Ph.D.)
-13- Number of sisters/brothers (if available): (1: 1, 2:, 2, 3: 3, 4: 4, 5: 5 or above)
-14- Parental status: (1: married, 2: divorced, 3: died - one of them or both)
-15- Mothersâ€™ occupation: (1: retired, 2: housewife, 3: government officer, 4: private sector employee, 5: self-employment, 6: other)
-16- Fathersâ€™ occupation: (1: retired, 2: government officer, 3: private sector employee, 4: self-employment, 5: other)
-17- Weekly study hours: (1: None, 2: <5 hours, 3: 6-10 hours, 4: 11-20 hours, 5: more than 20 hours)
-18- Reading frequency (non-scientific books/journals): (1: None, 2: Sometimes, 3: Often)
-19- Reading frequency (scientific books/journals): (1: None, 2: Sometimes, 3: Often)
-20- Attendance to the seminars/conferences related to the department: (1: Yes, 2: No)
-21- Impact of your projects/activities on your success: (1: positive, 2: negative, 3: neutral)
-22- Attendance to classes (1: always, 2: sometimes, 3: never)
-23- Preparation to midterm exams 1: (1: alone, 2: with friends, 3: not applicable)
-24- Preparation to midterm exams 2: (1: closest date to the exam, 2: regularly during the semester, 3: never)
-25- Taking notes in classes: (1: never, 2: sometimes, 3: always)
-26- Listening in classes: (1: never, 2: sometimes, 3: always)
-27- Discussion improves my interest and success in the course: (1: never, 2: sometimes, 3: always)
-28- Flip-classroom: (1: not useful, 2: useful, 3: not applicable)
-29- Cumulative grade point average in the last semester (/4.00): (1: <2.00, 2: 2.00-2.49, 3: 2.50-2.99, 4: 3.00-3.49, 5: above 3.49)
-30- Expected Cumulative grade point average in the graduation (/4.00): (1: <2.00, 2: 2.00-2.49, 3: 2.50-2.99, 4: 3.00-3.49, 5: above 3.49)
-31- Course ID
-32- OUTPUT Grade (0: Fail, 1: DD, 2: DC, 3: CC, 4: CB, 5: BB, 6: BA, 7: AA)
-"
-
+# to real outputs never used but useful to see for eda
 label_mappings <- list(
   Age                              = c("1" = "18-21",      "2" = "22-25",               "3" = "26+"),
   Sex                              = c("1" = "Female",     "2" = "Male"),
@@ -99,7 +63,7 @@ colnames(data) <- col_names
 
 ###################################################
 # EDA 
-##################################################
+###################################################
 
 plot_var <- function(name) {
     ggplot(data, aes(x = .data[[name]])) +
@@ -133,3 +97,162 @@ for (col in colnames(data)) {
 
 plot_var("Grade")
 plot_var("Total_salary")
+
+###################################################
+# Preprocessing
+###################################################
+set.seed(42069)
+prepare_data <- function(data) {
+  data_clean <- data[, !names(data) %in% c("Student_ID", "Course_ID")]
+  data_clean[] <- lapply(data_clean, function(x) as.numeric(as.factor(x)))
+  data_clean <- na.omit(data_clean)
+  return(data_clean)
+}
+###################################################
+# Clustering
+###################################################
+
+plot_clusters <- function(data_clust, km_model) {
+  
+  pca <- prcomp(data_clust, scale. = TRUE)
+  
+  plot_data <- data.frame(
+    PC1 = pca$x[,1],
+    PC2 = pca$x[,2],
+    Cluster = factor(km_model$cluster)
+  )
+  
+  ggplot(plot_data, aes(x = PC1, y = PC2, color = Cluster)) +
+    geom_point(size = 2) +
+    labs(title = "Clusters",
+         x = "PC1", y = "PC2") +
+    theme_minimal()
+}
+
+plot_clusters_with_grade <- function(data_clust, km_model, original_data) {
+  
+  pca <- prcomp(data_clust, scale. = TRUE)
+  
+  plot_data <- data.frame(
+    PC1 = pca$x[,1],
+    PC2 = pca$x[,2],
+    Cluster = factor(km_model$cluster),
+    Grade = factor(original_data$Grade)
+  )
+  
+  ggplot(plot_data, aes(x = PC1, y = PC2, color = Grade)) +
+    geom_point(size = 2) +
+    labs(title = "Clusters Colored by Grade",
+         x = "PC1", y = "PC2") +
+    theme_minimal()
+}
+
+km_clust <- prepare_data(data)
+km <- kmeans(km_clust, centers = 3, nstart = 10)
+plot_clusters(km_clust, km)
+plot_clusters_with_grade(km_clust, km, data)
+
+###################################################
+# Linear Regression
+###################################################
+
+lm_data <- prepare_data(data)
+lm_model <- lm(Grade ~ Listening_during_class + Weekly_study_hours + 
+                 Taking_notes + Academic_Reading_frequency, lm_data)
+
+# Evaluation
+predictions <- predict(lm_model, lm_data)
+actual <- lm_data$Grade
+
+summary(lm_model)
+
+predictions <- predict(lm_model, lm_data)
+
+plot_data <- data.frame(
+  Actual = actual,
+  Predicted = predictions
+)
+
+ggplot(plot_data, aes(x = Actual, y = Predicted)) +
+  geom_point(color = "blue") +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Linear Model: Actual vs Predicted Grades",
+       x = "Actual Grade",
+       y = "Predicted Grade") +
+  theme_minimal()
+
+###################################################
+# Random Forest
+###################################################
+
+rf_data <- prepare_data(data)
+rf_model <- randomForest(Grade ~ Listening_during_class + Weekly_study_hours + 
+                         Taking_notes + Academic_Reading_frequency, rf_data,
+                         ntree = 100)
+
+# Evaluation
+predictions <- predict(rf_model, rf_data)
+actual <- rf_data$Grade
+
+summary(rf_model)
+rmse <- sqrt(mean((actual - predictions)^2))
+r2 <- 1 - sum((actual - predictions)^2) / sum((actual - mean(actual))^2)
+cat("\nRandom Forest Evaluation:\n")
+cat("RMSE:", rmse, "\n")
+cat("R-squared:", r2, "\n")
+predictions <- predict(lm_model, lm_data)
+
+plot_data <- data.frame(
+  Actual = actual,
+  Predicted = predictions
+)
+
+ggplot(plot_data, aes(x = Actual, y = Predicted)) +
+  geom_point(color = "darkgreen") +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Random Forest: Actual vs Predicted",
+       x = "Actual Grade",
+       y = "Predicted Grade") +
+  theme_minimal()
+
+###################################################
+# SVM and PCA
+###################################################
+
+variance_threshold <- 0.90
+svm_clean <- prepare_data(data)
+pca <- prcomp(svm_clean[, colnames(svm_clean) != "Grade"], scale. = TRUE)
+var_explained <- cumsum(pca$sdev^2 / sum(pca$sdev^2))
+num_comp <- which(var_explained >= variance_threshold)[1]
+cat("Number of components selected:", num_comp, "\n")
+
+pca_data <- as.data.frame(pca$x[, 1:num_comp])
+pca_data$Grade <- svm_clean$Grade
+
+svm_model <- svm(
+  Grade ~ .,
+  data = pca_data,
+  type = "eps-regression"
+)
+summary(svm_model)
+
+predictions <- predict(svm_model, pca_data)
+actual <- pca_data$Grade
+
+rmse <- sqrt(mean((actual - predictions)^2))
+r2   <- 1 - sum((actual - predictions)^2) / sum((actual - mean(actual))^2)
+cat("\nSVM (PCA) Evaluation:\n")
+cat("RMSE:", rmse, "\n")
+cat("R-squared:", r2, "\n")
+
+plot_data <- data.frame(
+  Actual = actual, 
+  Predicted = predictions
+)
+
+ggplot(plot_data, aes(x = Actual, y = Predicted)) +
+  geom_point(color = "purple") +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "SVM with PCA: Actual vs Predicted",
+       x = "Actual Grade", y = "Predicted Grade") +
+  theme_minimal()
