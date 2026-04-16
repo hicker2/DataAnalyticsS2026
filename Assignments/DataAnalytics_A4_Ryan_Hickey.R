@@ -170,17 +170,27 @@ set.seed(42)
 
 # ── Prepare modeling dataset ───────────────────────────────────
 model_df <- clean_df %>%
+  mutate(
+    # Convert to datetime
+    created_at = as.POSIXct(created_at),
+    pr_created_at = as.POSIXct(pr_created_at),
+    
+    # Feature engineering
+    account_age_days = as.numeric(difftime(Sys.time(), created_at, units = "days")),
+    pr_year = as.numeric(format(pr_created_at, "%Y")),
+    pr_month = as.numeric(format(pr_created_at, "%m"))
+  ) %>%
   select(
-    login,
+    followers,
+    following,
     public_repos,
-    created_at,
-    pr_created_at,
     merged_flag,
     pr_size,
     title_length,
     time_to_close,
-    followers,
-    following
+    account_age_days,
+    pr_year,
+    pr_month
   ) %>%
   na.omit()
 
@@ -192,16 +202,17 @@ train_index <- createDataPartition(model_df$merged_flag, p = 0.7, list = FALSE)
 train_data <- model_df[train_index, ]
 test_data  <- model_df[-train_index, ]
 
-# ── Model 1: Logistic Regression (PR features only) ────────────
+# ── Model 1: Logistic Regression (All features) ────────────
 model1 <- glm(
-  merged_flag ~ pr_size + pr_created_at + login + created_at,
+  merged_flag ~ log1p(pr_size) + title_length + log1p(time_to_close) +
+    log1p(account_age_days) + pr_year + pr_month + followers + following + public_repos,
   data = train_data,
   family = "binomial"
 )
 
 pred1 <- predict(model1, test_data, type = "response")
 pred1_class <- ifelse(pred1 > 0.5, 1, 0)
-
+summary(model1)
 # ── Model 2: Logistic Regression (+ user features) ─────────────
 
 model2 <- glm(
