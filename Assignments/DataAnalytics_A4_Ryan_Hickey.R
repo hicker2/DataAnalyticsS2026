@@ -6,6 +6,9 @@ library(ggplot2)
 library(caret)
 library(randomForest)
 library(e1071)
+library(broom)
+library(pROC)
+
 
 # set working directory
 setwd("~\\GitHub\\DataAnalyticsS2026\\Assignments")
@@ -202,10 +205,27 @@ train_index <- createDataPartition(model_df$merged_flag, p = 0.7, list = FALSE)
 train_data <- model_df[train_index, ]
 test_data  <- model_df[-train_index, ]
 
+train_data <- train_data %>%
+  mutate(
+    log_time_to_close = log1p(time_to_close),
+    log_account_age = log1p(account_age_days)
+  )
+
+test_data <- test_data %>%
+  mutate(
+    log_time_to_close = log1p(time_to_close),
+    log_account_age = log1p(account_age_days)
+  )
+
+train_balanced <- downSample(
+  x = train_data[, -which(names(train_data) == "merged_flag")],
+  y = train_data$merged_flag
+)
+
 # ── Model 1: Logistic Regression (All features) ────────────
 model1 <- glm(
-  merged_flag ~ log1p(pr_size) + title_length + log1p(time_to_close) +
-    log1p(account_age_days) + pr_year + pr_month + followers + following + public_repos,
+  merged_flag ~ log1p(pr_size) + title_length + time_to_close +
+    account_age_days + pr_year + pr_month + followers + following + public_repos,
   data = train_data,
   family = "binomial"
 )
@@ -213,27 +233,80 @@ model1 <- glm(
 pred1 <- predict(model1, test_data, type = "response")
 pred1_class <- ifelse(pred1 > 0.5, 1, 0)
 summary(model1)
-# ── Model 2: Logistic Regression (+ user features) ─────────────
 
+coef_df <- tidy(model1) %>%
+  filter(term != "(Intercept)")
+
+ggplot(coef_df, aes(x = reorder(term, estimate), y = estimate)) +
+  geom_col() +
+  coord_flip() +
+  labs(
+    title = "Feature Effects (Logistic Regression)",
+    x = "Feature",
+    y = "Coefficient"
+  ) +
+  theme_minimal()
+
+# ── Model 2: Logistic Regression (+ user features) ─────────────
 model2 <- glm(
-  merged_flag ~ pr_size + title_length + time_to_close + followers
-                + following + pr_created_at + login + created_at,
+  merged_flag ~ title_length + time_to_close + 
+    account_age_days + pr_year + following,
   data = train_data,
   family = "binomial"
 )
 
 pred2 <- predict(model2, test_data, type = "response")
 pred2_class <- ifelse(pred2 > 0.5, 1, 0)
+summary(model2)
 
+test_data$pred_prob2 <- pred2
+
+ggplot(test_data, aes(x = pred_prob2, fill = merged_flag)) +
+  geom_histogram(bins = 30, alpha = 0.6, position = "identity") +
+  labs(
+    title = "Model 2: Predicted Probability Distribution",
+    x = "Predicted Probability of Merge",
+    fill = "Actual Outcome"
+  ) +
+  theme_minimal()
 # ── Model 3: Random Forest ─────────────────────────────────────
 
 model3 <- randomForest(
   merged_flag ~ pr_size + title_length + time_to_close + followers + following,
   data = train_data,
-  ntree = 100
+  ntree = 100,
+  # classwt = c("0" = 2, "1" = 1)
 )
 
 pred3_class <- predict(model3, test_data)
+
+imp <- importance(model3)
+imp_df <- data.frame(
+  Feature = rownames(imp),
+  Importance = imp[,1]
+)
+
+ggplot(imp_df, aes(x = reorder(Feature, Importance), y = Importance)) +
+  geom_col() +
+  coord_flip() +
+  labs(
+    title = "Random Forest Feature Importance",
+    x = "Feature",
+    y = "Importance"
+  ) +
+  theme_minimal()
+
+pred3_prob <- predict(model3, test_data, type = "prob")[,2]
+test_data$pred3_prob <- pred3_prob
+
+ggplot(test_data, aes(x = pred3_prob, fill = merged_flag)) +
+  geom_histogram(bins = 30, alpha = 0.6, position = "identity") +
+  labs(
+    title = "Random Forest: Predicted Probabilities",
+    x = "Probability of Merge",
+    fill = "Actual Outcome"
+  ) +
+  theme_minimal()
 
 # ── Model 4: Support Vector Machine (SVM) ──────────────────────
 
@@ -247,17 +320,33 @@ pred4_class <- predict(model4, test_data)
 
 # ── Evaluation Function ────────────────────────────────────────
 
-evaluate_model <- function(true, pred, name) {
-  cat("\n", name, "\n")
-  cm <- confusionMatrix(as.factor(pred), true)
+evaluate_model <- function(true, pred_class, pred_prob = NULL, name = "Model") {
+  cat("\n============================\n")
+  cat(name, "\n")
+  cat("============================\n")
+  
+  # Confusion Matrix
+  cm <- confusionMatrix(as.factor(pred_class), as.factor(true))
   print(cm)
+  
+  # Extract metrics
+  precision <- cm$byClass["Precision"]
+  recall    <- cm$byClass["Recall"]
+  f1        <- cm$byClass["F1"]
+  accuracy  <- cm$overall["Accuracy"]
+  
+  cat("\n--- Metrics ---\n")
+  cat("Accuracy :", round(accuracy, 4), "\n")
+  cat("Precision:", round(precision, 4), "\n")
+  cat("Recall   :", round(recall, 4), "\n")
+  cat("F1 Score :", round(f1, 4), "\n")
 }
 
 # ── Evaluate all models ────────────────────────────────────────
 
-evaluate_model(test_data$merged_flag, pred1_class, "Model 1: Logistic (PR only)")
-evaluate_model(test_data$merged_flag, pred2_class, "Model 2: Logistic (+ user)")
-evaluate_model(test_data$merged_flag, pred3_class, "Model 3: Random Forest")
-evaluate_model(test_data$merged_flag, pred4_class, "Model 4: SVM")
+evaluate_model(test_data$merged_flag, pred1_class,, "Model 1: Logistic")
+evaluate_model(test_data$merged_flag, pred2_class,, "Model 2: Logistic (Only important features)")
+evaluate_model(test_data$merged_flag, pred3_class,, "Model 3: Random Forest")
+evaluate_model(test_data$merged_flag, pred4_class,, "Model 4: SVM")
 
 
