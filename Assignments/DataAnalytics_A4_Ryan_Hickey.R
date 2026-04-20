@@ -222,6 +222,29 @@ train_balanced <- downSample(
   y = train_data$merged_flag
 )
 
+# ── Evaluation Function ────────────────────────────────────────
+evaluate_model <- function(true, pred_class, pred_prob = NULL, name = "Model") {
+  cat("\n============================\n")
+  cat(name, "\n")
+  cat("============================\n")
+  
+  # Confusion Matrix
+  cm <- confusionMatrix(as.factor(pred_class), as.factor(true))
+  print(cm)
+  
+  # Extract metrics
+  precision <- cm$byClass["Precision"]
+  recall    <- cm$byClass["Recall"]
+  f1        <- cm$byClass["F1"]
+  accuracy  <- cm$overall["Accuracy"]
+  
+  cat("\n--- Metrics ---\n")
+  cat("Accuracy :", round(accuracy, 4), "\n")
+  cat("Precision:", round(precision, 4), "\n")
+  cat("Recall   :", round(recall, 4), "\n")
+  cat("F1 Score :", round(f1, 4), "\n")
+}
+
 # ── Model 1: Logistic Regression (All features) ────────────
 model1 <- glm(
   merged_flag ~ log1p(pr_size) + title_length + time_to_close +
@@ -247,6 +270,8 @@ ggplot(coef_df, aes(x = reorder(term, estimate), y = estimate)) +
   ) +
   theme_minimal()
 
+evaluate_model(test_data$merged_flag, pred1_class,, "Model 1: Logistic")
+
 # ── Model 2: Logistic Regression (+ user features) ─────────────
 model2 <- glm(
   merged_flag ~ title_length + time_to_close + 
@@ -269,6 +294,9 @@ ggplot(test_data, aes(x = pred_prob2, fill = merged_flag)) +
     fill = "Actual Outcome"
   ) +
   theme_minimal()
+
+evaluate_model(test_data$merged_flag, pred2_class,, "Model 2: Logistic (Only important features)")
+
 # ── Model 3: Random Forest ─────────────────────────────────────
 
 model3 <- randomForest(
@@ -308,45 +336,74 @@ ggplot(test_data, aes(x = pred3_prob, fill = merged_flag)) +
   ) +
   theme_minimal()
 
-# ── Model 4: Support Vector Machine (SVM) ──────────────────────
+evaluate_model(test_data$merged_flag, pred3_class,, "Model 3: Random Forest")
 
-model4 <- svm(
-  merged_flag ~ pr_size + title_length + time_to_close + followers + following,
+# ── Model 4: Support Vector Machine (SVM) ──────────────────────
+train_data <- train_data %>%
+  mutate(across(where(is.numeric), scale))
+
+test_data <- test_data %>%
+  mutate(across(where(is.numeric), scale))
+
+train_data <- train_data %>%
+  mutate(
+    log_pr_size = log1p(pr_size),
+    log_time_to_close = log1p(time_to_close),
+    log_followers = log1p(followers),
+    log_following = log1p(following)
+  )
+
+test_data <- test_data %>%
+  mutate(
+    log_pr_size = log1p(pr_size),
+    log_time_to_close = log1p(time_to_close),
+    log_followers = log1p(followers),
+    log_following = log1p(following)
+  )
+train_data <- train_data %>%
+  mutate(
+    size_time_interaction = log_pr_size * log_time_to_close
+  )
+train_data$merged_flag <- factor(
+  train_data$merged_flag,
+  levels = c(0, 1),
+  labels = c("Closed", "Merged")
+)
+
+test_data$merged_flag <- factor(
+  test_data$merged_flag,
+  levels = c(0, 1),
+  labels = c("Closed", "Merged")
+)
+control <- trainControl(
+  method = "cv",
+  number = 3,
+  classProbs = TRUE
+)
+
+model4 <- train(
+  merged_flag ~ log_time_to_close + log_following,
   data = train_data,
-  probability = TRUE
+  method = "svmRadial",
+  trControl = control,
+  tuneLength = 5
 )
 
 pred4_class <- predict(model4, test_data)
+pred_prob4 <- predict(model4, test_data, type = "prob")[, "Merged"]
 
-# ── Evaluation Function ────────────────────────────────────────
+test_data$pred_prob4 <- pred_prob4
 
-evaluate_model <- function(true, pred_class, pred_prob = NULL, name = "Model") {
-  cat("\n============================\n")
-  cat(name, "\n")
-  cat("============================\n")
-  
-  # Confusion Matrix
-  cm <- confusionMatrix(as.factor(pred_class), as.factor(true))
-  print(cm)
-  
-  # Extract metrics
-  precision <- cm$byClass["Precision"]
-  recall    <- cm$byClass["Recall"]
-  f1        <- cm$byClass["F1"]
-  accuracy  <- cm$overall["Accuracy"]
-  
-  cat("\n--- Metrics ---\n")
-  cat("Accuracy :", round(accuracy, 4), "\n")
-  cat("Precision:", round(precision, 4), "\n")
-  cat("Recall   :", round(recall, 4), "\n")
-  cat("F1 Score :", round(f1, 4), "\n")
-}
+ggplot(test_data, aes(x = pred_prob4, fill = merged_flag)) +
+  geom_histogram(bins = 30, alpha = 0.6, position = "identity") +
+  labs(
+    title = "SVM: Predicted Probability Distribution",
+    x = "Predicted Probability of Merge",
+    fill = "Actual Outcome"
+  ) +
+  theme_minimal()
 
-# ── Evaluate all models ────────────────────────────────────────
 
-evaluate_model(test_data$merged_flag, pred1_class,, "Model 1: Logistic")
-evaluate_model(test_data$merged_flag, pred2_class,, "Model 2: Logistic (Only important features)")
-evaluate_model(test_data$merged_flag, pred3_class,, "Model 3: Random Forest")
 evaluate_model(test_data$merged_flag, pred4_class,, "Model 4: SVM")
 
 
